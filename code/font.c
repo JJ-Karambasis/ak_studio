@@ -17,7 +17,7 @@ function font* Font_Create(arena* Arena, string Path, u32 FontSize) {
 	int Ascent, Descent, LineGap;
 	stbtt_GetFontVMetrics(&Result->FontInfo, &Ascent, &Descent, &LineGap);
 
-	Result->Scale = stbtt_ScaleForPixelHeight(&Result->FontInfo, (f32)FontSize);
+	Result->Scale = stbtt_ScaleForMappingEmToPixels(&Result->FontInfo, (f32)FontSize);
 	Result->Ascent = (f32)Abs(Ascent)*Result->Scale;
 	Result->Descent = (f32)Abs(Descent)*Result->Scale;
 	Result->LineHeight = (Ascent - Descent + LineGap)*Result->Scale;
@@ -37,9 +37,9 @@ function font* Font_Create(arena* Arena, string Path, u32 FontSize) {
 		for (u32 y = 0; y < Height; y++) {
 			for (u32 x = 0; x < Width; x++) {
 				u8 Value = *SrcTexels++;
-				*Dst++ = Value;
-				*Dst++ = Value;
-				*Dst++ = Value;
+				*Dst++ = 255;
+				*Dst++ = 255;
+				*Dst++ = 255;
 				*Dst++ = Value;
 			}
 		}

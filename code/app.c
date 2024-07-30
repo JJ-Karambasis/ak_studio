@@ -19,7 +19,7 @@ __declspec(dllexport) APP_UPDATE_AND_RENDER(App_Update_And_Render) {
 	vec2 Min = V2(200.0f, 200.0f);
 	vec2 Max = V2_Add_V2(Min, Glyph->Dim);
 
-	Set_Alpha_Blend(ALPHA_BLEND_PREMULTIPLIED);
+	Set_Alpha_Blend(ALPHA_BLEND_NORMAL);
 	Draw_Texture_Rect(Min, Max, Texture);
 
 	Draw_Rect(V2(500.0f, 500.0f), V2(550.0f, 550.0f), Green4_With_Alpha(0.75f));

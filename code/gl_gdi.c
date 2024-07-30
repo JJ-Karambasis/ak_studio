@@ -38,7 +38,7 @@ function void GDI_Begin() {
 	glLoadIdentity();
 	glOrtho(0.0f, GDI->Resolution.w, GDI->Resolution.h, 0.0f, -1.0f, 1.0f);
 
-	Set_Alpha_Blend(false);
+	Set_Alpha_Blend(ALPHA_BLEND_NONE);
 }
 
 function void GDI_End() {
@@ -66,7 +66,7 @@ function void Draw_Texture_Rect(vec2 Min, vec2 Max, texture* Texture) {
 
 	glBegin(GL_TRIANGLES);
 
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+	glColor3f(1.0f, 1.0f, 1.0f);
 
 	glTexCoord2f(0.0f, 0.0f);
 	glVertex2f(Min.x, Min.y);

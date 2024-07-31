@@ -189,20 +189,79 @@ function void Free_Memory(void* Memory) {
 	free(Memory);
 }
 
+function memory_reserve Make_Memory_Reserve(usize Size) {
+	memory_reserve Result = { 0 };
+
+	Size = Align_Size(Size, G_Platform->PageSize);
+	Result.BaseAddress = (u8*)Reserve_Memory(Size);
+	if (!Result.BaseAddress) {
+		return Result;
+	}
+
+	Result.ReserveSize = Size;
+	Result.CommitSize  = 0;
+	return Result;
+}
+
+function b32 Reserve_Is_Valid(memory_reserve* Reserve) {
+	return (Reserve->BaseAddress != NULL && Reserve->ReserveSize != 0);
+}
+
+function void* Commit_New_Size(memory_reserve* Reserve, usize NewSize) {
+	//Get the proper offset to the commit address and find the new commit size.
+	//Committed size must align on a page boundary
+	u8* BaseCommit = Reserve->BaseAddress + Reserve->CommitSize;
+	usize NewCommitSize = Align_Size(NewSize, G_Platform->PageSize);
+	usize DeltaSize = NewCommitSize - Reserve->CommitSize;
+
+	if (NewCommitSize > Reserve->ReserveSize) {
+		Log("Allocated more memory what was reserved!");
+		return NULL;
+	}
+
+	Assert(NewCommitSize <= Reserve->ReserveSize);
+	Assert((NewCommitSize % G_Platform->PageSize) == 0);
+	Assert((DeltaSize % G_Platform->PageSize) == 0);
+
+	//Commit the new memory pages
+	void* CommitMemory = Commit_Memory(BaseCommit, DeltaSize); 
+	if (!CommitMemory) {
+		Log("Failed to commit more memory!");
+		return NULL;
+	}
+
+	Reserve->CommitSize = NewCommitSize;
+	return CommitMemory;
+}
+
+function void Decommit_New_Size(memory_reserve* Reserve, usize NewSize) {
+	if (!Reserve->CommitSize) {
+		//If we have not allocated any memory yet, make sure that the marker is valid and return
+		Assert(NewSize == 0);
+		return;
+	}
+
+	usize NewCommitSize = Align_Size(NewSize, G_Platform->PageSize);
+	Assert(Reserve->CommitSize >= NewCommitSize);
+	usize DeltaSize = Reserve->CommitSize - NewCommitSize;
+
+	Assert((NewCommitSize % G_Platform->PageSize) == 0);
+	Assert((DeltaSize % G_Platform->PageSize) == 0);
+
+	if (DeltaSize) {
+		//If we have more memory than needed, decommit the pages
+		u8* BaseCommit = Reserve->BaseAddress + NewCommitSize;
+		Decommit_Memory(BaseCommit, DeltaSize);
+		Reserve->CommitSize = NewCommitSize;
+	}
+}
+
 function arena* Arena_Create_With_Size(usize ReserveSize) {
 	arena* Arena = (arena*)Allocate_Memory(sizeof(arena));
 	if (Arena) {
-		SYSTEM_INFO SystemInfo;
-		GetSystemInfo(&SystemInfo);
+		Arena->Reserve = Make_Memory_Reserve(ReserveSize);
 
-		usize PageSize = SystemInfo.dwAllocationGranularity;
-		ReserveSize = Align_Size(ReserveSize, PageSize);
-
-		Arena->BaseAddress = (u8*)Reserve_Memory(ReserveSize);
-		Arena->ReserveSize = ReserveSize;
-		Arena->PageSize    = PageSize;
-
-		if (!Arena->BaseAddress) {
+		if (!Arena->Reserve.BaseAddress) {
 			Log("Failed to reserve the arena memory!");
 			Free_Memory(Arena);
 			Arena = NULL;
@@ -219,7 +278,7 @@ function arena* Arena_Create() {
 }
 
 function b32 Arena_Is_Valid(arena* Arena) {
-	return Arena && (Arena->BaseAddress != NULL);
+	return Arena && Reserve_Is_Valid(&Arena->Reserve);
 }
 
 function void* Arena_Push_Aligned_No_Clear(arena* Arena, usize Size, usize Alignment) {
@@ -228,41 +287,24 @@ function void* Arena_Push_Aligned_No_Clear(arena* Arena, usize Size, usize Align
 	if (!Size) {
 		return NULL;
 	}
+
+	memory_reserve* Reserve = &Arena->Reserve;
 	
 	//Handle alignment
 	Assert(Is_Pow2(Alignment));
 	usize NewUsed = Align_Pow2(Arena->Used, Alignment);
 
-	//Check if the arena can support the allocation
-	if (NewUsed + Size > Arena->ReserveSize) {
-		Log("Allocated more memory in the arena than is reserved!");
-		return NULL;
-	}
-
 	//Get the aligned memory address and increment the used value
-	void* Result = Arena->BaseAddress + NewUsed;
+	void* Result = Reserve->BaseAddress + NewUsed;
 	NewUsed += Size;
 
 	//Check if we need to commit more memory
-	if (NewUsed > Arena->CommitSize) {
-
-		//Get the proper offset to the commit address and find the new commit size.
-		//Committed size must align on a page boundary
-		u8* BaseCommit = Arena->BaseAddress + Arena->CommitSize;
-		usize NewCommitSize = Align_Size(NewUsed, Arena->PageSize);
-		usize DeltaSize = NewCommitSize - Arena->CommitSize;
-
-		Assert((NewCommitSize % Arena->PageSize) == 0);
-		Assert((DeltaSize % Arena->PageSize) == 0);
-
-		//Commit the new memory pages
-		void* CommitMemory = Commit_Memory(BaseCommit, DeltaSize); 
+	if (NewUsed > Reserve->CommitSize) {
+		void* CommitMemory = Commit_New_Size(Reserve, NewUsed);
 		if (!CommitMemory) {
 			Log("Failed to commit more memory for the arena!");
 			return NULL;
 		}
-
-		Arena->CommitSize = NewCommitSize;
 	}
 
 	//Set the new used value before returning the address
@@ -295,28 +337,8 @@ function arena_marker Arena_Get_Marker(arena* Arena) {
 
 function void Arena_Set_Marker(arena* Arena, arena_marker Marker) {
 	Assert(Arena == Marker.Arena);
-	if (!Arena->CommitSize) {
-		//If we have not allocated any memory yet, make sure that the marker is valid and return
-		Assert(Marker.Used == 0);
-		return;
-	}
-
-	//We can release pages that are no longer need after setting the marker. Get the next highest commit size
-	//from the marker and then release the pages after that commit size
-	usize NewCommitSize = Align_Size(Marker.Used, Arena->PageSize);
-	Assert(Arena->CommitSize >= NewCommitSize);
-	usize DeltaSize = Arena->CommitSize - NewCommitSize;
-
-	Assert((NewCommitSize % Arena->PageSize) == 0);
-	Assert((DeltaSize % Arena->PageSize) == 0);
-
-	if (DeltaSize) {
-		//If we have more memory than needed, decommit the pages
-		u8* BaseCommit = Arena->BaseAddress + NewCommitSize;
-		Decommit_Memory(BaseCommit, DeltaSize);
-		Arena->CommitSize = NewCommitSize;
-	}
-
+	memory_reserve* Reserve = &Arena->Reserve;
+	Decommit_New_Size(Reserve, Marker.Used);
 	//Finally set the arena's used value to the marker
 	Arena->Used = Marker.Used;
 }
@@ -742,6 +764,27 @@ function usize WString_Find_First(wstring String, wstring Pattern) {
 #define WString_Lit(str) WString(L##str, (sizeof(L##str) / 2)-1)
 #define WString_Null_Term(str) WString(str, WString_Length(str))
 
+function utf8_reader UTF8_Reader_Begin(const char* Str, usize Size) {
+	utf8_reader Result = {
+		.Start = Str,
+		.At	 = Str,
+		.End = Str+Size
+	};
+	return Result;
+}
+
+function b32 UTF8_Reader_Is_Valid(utf8_reader* Reader) {
+	return Reader->At < Reader->End;
+}
+
+function u32 UTF8_Reader_Next(utf8_reader* Reader) {
+	Assert(UTF8_Reader_Is_Valid(Reader));
+	u32 Length;
+	u32 Result = UTF8_Read(Reader->At, &Length);
+	Reader->At += Length;
+	return Result;
+}
+
 function vec4 V4(f32 x, f32 y, f32 z, f32 w) {
 	vec4 Result = { .x = x, .y = y, .z = z, .w = w };
 	return Result;
@@ -754,5 +797,25 @@ function vec4 Green4_With_Alpha(f32 Alpha) {
 
 function vec4 Green4() {
 	vec4 Result = Green4_With_Alpha(1.0f);
+	return Result;
+}
+
+function vec4 White4_With_Alpha(f32 Alpha) {
+	vec4 Result = V4(1.0f, 1.0f, 1.0f, Alpha);
+	return Result;
+}
+
+function vec4 White4() {
+	vec4 Result = White4_With_Alpha(1.0f);
+	return Result;
+}
+
+function vec4 Black4_With_Alpha(f32 Alpha) {
+	vec4 Result = V4(0.0f, 0.0f, 0.0f, Alpha);
+	return Result;
+}
+
+function vec4 Black4() {
+	vec4 Result = Black4_With_Alpha(1.0f);
 	return Result;
 }

@@ -27,7 +27,7 @@ function texture* Create_Texture(const texture_create_info* CreateInfo);
 function void GDI_Begin();
 function void GDI_End();
 function void Draw_Rect(vec2 Min, vec2 Max, vec4 Color);
-function void Draw_Texture_Rect(vec2 Min, vec2 Max, texture* Texture);
+function void Draw_Texture_Rect(vec2 Min, vec2 Max, vec4 Color, texture* Texture);
 function void Set_Alpha_Blend(alpha_blend AlphaBlend);
 
 #endif

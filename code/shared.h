@@ -177,52 +177,15 @@ Target->Prev = Node; \
 #define DLL_Remove(First, Last, Node) DLL_Remove_NP(First, Last, Node, Next, Prev)
 #define DLL_Push_Front_Only(First, Node) DLL_Push_Front_Only_NP(First, Node, Next, Prev)
 
-typedef struct heap_block_node heap_block_node;
-typedef struct heap_block heap_block;
-
-struct heap_block {
-	usize              Offset;
-	usize              Size;
-	heap_block_node*   Node;
-	heap_block*        Prev;
-	heap_block*        Next;
-#ifdef DEBUG_BUILD
-	heap_block* NextAllocated;
-	heap_block* PrevAllocated;
-#endif
-};
-
-struct heap_block_node {
-	heap_block*      Block;
-	usize            Color;
-	heap_block_node* LeftChild;
-	heap_block_node* RightChild;
-};
-
-typedef struct {
-	usize 			 NodeCapacity;
-	usize 			 NodeCount;
-	heap_block_node* Nodes;
-	heap_block_node* Root;
-	heap_block_node* FreeNodes;
-} heap_block_tree;
-
-typedef struct {
-	u8*   			BaseAddress;
-	usize 			PageSize;
-	heap_block_tree FreeBlockTree;
-
-	#ifdef DEBUG_BUILD
-	heap_block* AllocatedList;
-	#endif
-} heap;
-
 typedef struct {
 	u8*   BaseAddress;
 	usize ReserveSize;
 	usize CommitSize;
-	usize PageSize;
-	usize Used;
+} memory_reserve;
+
+typedef struct {
+	memory_reserve Reserve;
+	usize 		   Used;
 } arena;
 
 typedef struct {
@@ -255,6 +218,12 @@ typedef struct {
 	const wchar_t* Ptr;
 	usize 		   Size;
 } wstring;
+
+typedef struct {
+	const char* Start;
+	const char* At;
+	const char* End;
+} utf8_reader;
 
 typedef struct {
 	union {

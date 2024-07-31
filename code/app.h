@@ -4,6 +4,8 @@
 #include "shared.h"
 #include "gdi.h"
 #include "font.h"
+#include "input.h"
+#include "app_buffer.h"
 
 typedef void platform_log(const char* Format, ...);
 typedef void* platform_reserve_memory(usize ReserveSize);
@@ -12,6 +14,7 @@ typedef void platform_decommit_memory(void* BaseCommit, usize DeltaSize);
 typedef buffer platform_read_entire_file(arena* Arena, string Path);
 
 typedef struct {
+	usize PageSize;
 	platform_log* PlatformLog;
 	platform_reserve_memory* ReserveMemory;
 	platform_commit_memory* CommitMemory;
@@ -19,8 +22,6 @@ typedef struct {
 	platform_read_entire_file* ReadEntireFile;
 	ak_tls 		  ThreadContextTLS;
 	gdi*          GDI;
-	ak_mutex 	  HeapLock;
-	heap 		  Heap;
 } platform;
 
 global platform* G_Platform;
@@ -31,9 +32,18 @@ global platform* G_Platform;
 #define Read_Entire_File(arena, path) G_Platform->ReadEntireFile(arena, path)
 
 typedef struct {
+	usize Line;
+	usize Column;
+} buffer_coord;
+
+typedef struct {
 	b32    Initialized;
 	arena* Arena;
+	u64 LastTimer;
+	input  Input;
 	font*  Font;
+	app_buffer Buffer;
+	buffer_coord Cursor;
 } app;
 
 #define APP_UPDATE_AND_RENDER(name) void name(app* App, platform* Platform)

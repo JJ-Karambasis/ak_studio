@@ -61,5 +61,9 @@ function font* Font_Create(arena* Arena, string Path, u32 FontSize) {
 
 	Scratch_Release();
 	return Result;
+}
 
+function f32 Font_Get_Kerning(font* Font, u32 CodepointA, u32 CodepointB) {
+	f32 Result = Font->Scale*(f32)stbtt_GetCodepointKernAdvance(&Font->FontInfo, CodepointA, CodepointB);
+	return Result;
 }

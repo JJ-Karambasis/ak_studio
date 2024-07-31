@@ -31,7 +31,7 @@ function void GDI_Begin() {
 	gdi* GDI = G_Platform->GDI;
 
 	glViewport(0, 0, GDI->Resolution.w, GDI->Resolution.h);
-	glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	glMatrixMode(GL_PROJECTION);
@@ -60,13 +60,13 @@ function void Draw_Rect(vec2 Min, vec2 Max, vec4 Color) {
 	glEnd();
 }
 
-function void Draw_Texture_Rect(vec2 Min, vec2 Max, texture* Texture) {
+function void Draw_Texture_Rect(vec2 Min, vec2 Max, vec4 Color, texture* Texture) {
 	gl_texture* glTexture = (gl_texture*)Texture;
 	glBindTexture(GL_TEXTURE_2D, glTexture->Handle);
 
 	glBegin(GL_TRIANGLES);
 
-	glColor3f(1.0f, 1.0f, 1.0f);
+	glColor4f(Color.x, Color.y, Color.z, Color.w);
 
 	glTexCoord2f(0.0f, 0.0f);
 	glVertex2f(Min.x, Min.y);

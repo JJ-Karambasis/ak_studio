@@ -15,6 +15,7 @@ typedef struct {
 typedef struct {
 	platform Platform;
 	arena*   Arena;
+	input*   Input;
 } win32;
 
 typedef struct {

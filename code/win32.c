@@ -5,13 +5,22 @@
 #include "shared.c"
 #include "font.c"
 #include "gl_gdi.c"
+#include "input.c"
 
 global app_update_and_render* App_Update_And_Render;
 
+function int Win32_Get_VKCode(keyboard_key Key);
+function int Win32_Get_Mouse_VKCode(mouse_key Key);
+
 function void Win32_LogV(const char* Format, va_list Args) {
-	char Buffer[1024];
-	stbsp_vsnprintf(Buffer, Array_Count(Buffer), Format, Args);
-	OutputDebugStringA(Buffer);
+	arena* Scratch = Scratch_Get();
+	char TmpBuffer[1];
+	int TotalLength = stbsp_vsnprintf(TmpBuffer, 1, Format, Args);
+	char* Buffer = Arena_Push_Array(Scratch, TotalLength + 1, char);
+	stbsp_vsnprintf(Buffer, TotalLength + 1, Format, Args);
+	wstring WStr = WString_From_String(Scratch, String(Buffer, TotalLength));
+	OutputDebugStringW(WStr.Ptr);
+	Scratch_Release();
 	OutputDebugStringA("\n");
 }
 
@@ -79,10 +88,34 @@ function string Win32_Get_Executable_Path(arena* Arena) {
 	return String_Empty();
 }
 
+function void Win32_Add_To_Char_Stream(char_stream* Stream, wchar_t* Char) {
+	char UTF8[4];
+	u32 Codepoint = UTF16_Read(Char, NULL);
+	u32 Length = UTF8_Write(UTF8, Codepoint);
+	Char_Stream_Push(Stream, UTF8, Length);
+}
 
 function LRESULT WINAPI Win32_Window_Proc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam) {
 	LRESULT Result = 0;
+	
+	win32* Win32 = (win32*)G_Platform;
+	input* Input = Win32->Input;
+
 	switch (Message) {
+		case WM_CHAR: {
+			//Skip backspace as it will be handled by the keyboard input
+			if (WParam != '\b') {
+				char_stream* CharStream = &Input->CharStream;
+
+				wchar_t* Param = (wchar_t*)&WParam;
+				if (WParam == '\r') {
+					Param = L"\n"; //Make carriage return always output a newline
+				}
+
+				Win32_Add_To_Char_Stream(CharStream, Param);
+			}
+		} break;
+		
 		case WM_CLOSE: {
 			PostQuitMessage(0);
 		} break;
@@ -188,9 +221,13 @@ function void Win32_Unload_App(win32_app_code* AppCode) {
 int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, int ShowCmd) {
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 	
+	SYSTEM_INFO SystemInfo;
+	GetSystemInfo(&SystemInfo);
+
 	win32 Win32 = { 0 };
 	G_Platform = &Win32.Platform;
 
+	G_Platform->PageSize = SystemInfo.dwAllocationGranularity;
 	G_Platform->PlatformLog = Win32_Log;
 	G_Platform->ReserveMemory = Win32_Reserve_Memory;
 	G_Platform->CommitMemory = Win32_Commit_Memory;
@@ -199,6 +236,10 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 	AK_TLS_Create(&G_Platform->ThreadContextTLS);
 
 	Win32.Arena = Arena_Create();
+
+	app App = {};
+	input* Input = &App.Input;
+	Win32.Input = Input;
 
 	WNDCLASSEXW WindowClass = {
 		.cbSize = sizeof(WNDCLASSEXW),
@@ -225,7 +266,7 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 	arena* Scratch = Scratch_Get();
 	string ExecutableFilePath = Win32_Get_Executable_Path(Scratch);
 	string ExecutablePath = String_Copy(Win32.Arena, String_Substr(ExecutableFilePath, 0, 
-																	String_Find_Last(ExecutableFilePath, '\\')+1));
+																   String_Find_Last(ExecutableFilePath, '\\')+1));
 	win32_app_code AppCode = {
 		.DLLPath = String_Concat(Win32.Arena, ExecutablePath, String_Lit("app.dll")),
 		.TempDLLPath = String_Concat(Win32.Arena, ExecutablePath, String_Lit("temp_app.dll"))
@@ -237,7 +278,8 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 		return 1;
 	}
 
-	app App = {};
+	Input->CharStream = Char_Stream_Create(GB(1));
+	char_stream* CharStream = &Input->CharStream;
 
 	for (;;) {
 		FILETIME FileTime = Win32_Get_File_Time(AppCode.DLLPath);
@@ -251,6 +293,17 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 			}
 		}
 
+		for (u32 i = 0; i < Array_Count(Input->Keyboard); i++) {
+			Button_New_Frame(&Input->Keyboard[i]);
+			Input->Keyboard[i].IsDown = false;
+		}
+
+		for (u32 i = 0; i < Array_Count(Input->Mouse); i++) {
+			Button_New_Frame(&Input->Mouse[i]);
+			Input->Mouse[i].IsDown = false;
+		}
+
+		Char_Stream_Reset(CharStream);
 
 		MSG Message;
 		while (PeekMessageW(&Message, NULL, 0, 0, PM_REMOVE)) {
@@ -266,6 +319,20 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 			}
 		}
 
+		for (u32 i = 0; i < Array_Count(Input->Keyboard); i++) {
+			int VKCode = Win32_Get_VKCode((keyboard_key)i);
+			if (GetAsyncKeyState(VKCode) & 0x8000) {
+				Input->Keyboard[i].IsDown = true;
+			}
+		}
+
+		for (u32 i = 0; i < Array_Count(Input->Mouse); i++) {
+			int VKCode = Win32_Get_Mouse_VKCode((mouse_key)i);
+			if (GetAsyncKeyState(VKCode) & 0x8000) {
+				Input->Mouse[i].IsDown = true;
+			}
+		}
+
 		gdi* GDI = G_Platform->GDI;
 
 		RECT Rect;
@@ -277,4 +344,50 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 
 		Assert(Thread_Context_Validate());
 	}
+}
+
+function int Win32_Get_VKCode(keyboard_key Key) {
+	if (Key < 256) {
+		return (int)Key;
+	}
+	
+	int Index = Key - 256;
+	Assert(Index < (KEYBOARD_KEY_COUNT - 256));
+	local const int VKCodes[] = {
+		VK_MENU,
+		VK_SHIFT,
+		VK_CONTROL,
+		VK_F1,
+		VK_F2,
+		VK_F3,
+		VK_F4,
+		VK_F5,
+		VK_F6,
+		VK_F7,
+		VK_F8,
+		VK_F9,
+		VK_F10,
+		VK_F11,
+		VK_F12,
+		VK_LEFT,
+		VK_RIGHT,
+		VK_DOWN,
+		VK_UP,
+		VK_DELETE,
+		VK_BACK
+	};
+
+	Static_Assert(Array_Count(VKCodes) == KEYBOARD_KEY_COUNT-256);
+	return VKCodes[Index];
+}
+
+function int Win32_Get_Mouse_VKCode(mouse_key Key) {
+	local const int VKCodes[] = {
+		VK_LBUTTON,
+		VK_MBUTTON,
+		VK_RBUTTON
+	};
+	Assert(Key < MOUSE_KEY_COUNT);
+	Static_Assert(Array_Count(VKCodes) == MOUSE_KEY_COUNT);
+	return VKCodes[Key];
 }

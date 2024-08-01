@@ -104,7 +104,9 @@ function LRESULT WINAPI Win32_Window_Proc(HWND Window, UINT Message, WPARAM WPar
 	switch (Message) {
 		case WM_CHAR: {
 			//Skip backspace as it will be handled by the keyboard input
-			if (WParam != '\b') {
+			b32 IsValidChar = WParam != '\b';
+
+			if (IsValidChar) {
 				char_stream* CharStream = &Input->CharStream;
 
 				wchar_t* Param = (wchar_t*)&WParam;

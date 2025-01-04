@@ -1,6 +1,10 @@
 #ifndef BASE_H
 #define BASE_H
 
+#ifdef OS_WIN32
+#include <windows.h>
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 typedef uint8_t  u8;
@@ -170,6 +174,18 @@ typedef struct {
 	s32 x;
 	s32 y;
 } v2i;
+
+typedef struct {
+	f32 x;
+	f32 y;
+} v2;
+
+typedef struct {
+	f32 x;
+	f32 y;
+	f32 z;
+	f32 w;
+} v4;
 
 #include <platform/platform.h>
 

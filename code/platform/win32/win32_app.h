@@ -3,26 +3,23 @@
 
 typedef struct win32_window win32_window;
 
-typedef struct {
-	HDC   DeviceContext;
-	HGLRC RenderContext;
-} win32_opengl_context;
-
 struct win32_window {
-	HWND 		  		 Handle;
-	win32_opengl_context OpenGLContext;
-	win32_window* 		 Next;
-	win32_window* 		 Prev;
+	HWND 		  Handle;
+	swapchain*    Swapchain;
+	app_panel* 	  RootPanel;
+	win32_window* Next;
+	win32_window* Prev;
 };
 
 typedef struct {
 	platform Base;
 	arena* Arena;
+	gdi* GDI;
 
-	win32_window* FirstWindow;
-	win32_window* LastWindow;
-	win32_window* FreeWindows;
-	u32 		  WindowCount;
+	win32_window* 		 FirstWindow;
+	win32_window* 		 LastWindow;
+	win32_window* 		 FreeWindows;
+	u32 		  		 WindowCount;
 } win32;
 
 #endif

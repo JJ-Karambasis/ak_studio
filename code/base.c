@@ -136,6 +136,8 @@ function void* Arena_Push_No_Clear(arena* Arena, size_t Size) {
 }
 
 #define Arena_Push_Struct_No_Clear(arena, type) (type*)Arena_Push_No_Clear(arena, sizeof(type))
+#define Arena_Push_Struct(arena, type) (type*)Arena_Push_No_Clear(arena, sizeof(type))
+
 
 function arena_marker Arena_Get_Marker(arena* Arena) {
 	arena_marker Result;
@@ -179,5 +181,15 @@ function arena* Scratch_Get() {
 
 function v2i V2i(s32 x, s32 y) {
 	v2i Result = { x, y };
+	return Result;
+}
+
+function v2 V2(f32 x, f32 y) {
+	v2 Result = { x, y };
+	return Result;
+}
+
+function v4 V4(f32 x, f32 y, f32 z, f32 w) {
+	v4 Result = { x, y, z, w};
 	return Result;
 }

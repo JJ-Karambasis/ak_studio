@@ -50,6 +50,7 @@ struct platform {
 	platform_vtable* VTable;
 	size_t 			 PageSize;
 	tls* 			 ThreadContextTLS;
+	struct 			 gdi* GDI;
 };
 
 #endif

@@ -1,12 +1,11 @@
-#include <windows.h>
 #include <base.h>
-
+#include <gdi/gdi.h>
+#include <app.h>
 #include "win32_app.h"
 
 #include <base.c>
 #include <platform/platform_shared.c>
-
-#include <gl/gl.h>
+#include <gdi/gdi_renderer.c>
 
 function HMONITOR Win32_Get_Primary_Monitor() {
 	const POINT Pt = { 0, 0 };
@@ -70,7 +69,11 @@ function LRESULT Win32_Window_Proc(HWND Hwnd, UINT Message, WPARAM WParam, LPARA
 			win32_window* Window = Win32_Window_From_HWND(Hwnd);
 			if (Window) {
 				Assert(Window->Handle == Hwnd);
+				GDI_Delete_Swapchain(Window->Swapchain);
+				
 				DLL_Remove(Win32->FirstWindow, Win32->LastWindow, Window);
+				Memory_Clear(Window, sizeof(win32_window));
+
 				SLL_Push_Front(Win32->FreeWindows, Window);
 				Win32->WindowCount--;
 			}
@@ -81,43 +84,6 @@ function LRESULT Win32_Window_Proc(HWND Hwnd, UINT Message, WPARAM WParam, LPARA
 		} break;
 	}
 	return Result;
-}
-
-function b32 Win32_Init_OpenGL(win32_opengl_context* Context, HWND Window) {
-	HDC DeviceContext = GetDC(Window);
-
-	PIXELFORMATDESCRIPTOR PixelFormatDescriptor = {
-		.nSize = sizeof(PIXELFORMATDESCRIPTOR),
-		.nVersion = 1,
-		.dwFlags = PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL|PFD_DOUBLEBUFFER,
-		.iPixelType = PFD_TYPE_RGBA,
-		.cColorBits = 32,
-	};
-
-	int PixelFormatIndex = ChoosePixelFormat(DeviceContext, &PixelFormatDescriptor);
-	if (PixelFormatIndex == 0) {
-		Assert(!"Failed to get a valid pixel format");
-		return false;
-	}
-
-	PIXELFORMATDESCRIPTOR ActualPixelFormatDescriptor;
-	DescribePixelFormat(DeviceContext, PixelFormatIndex, sizeof(PIXELFORMATDESCRIPTOR), &ActualPixelFormatDescriptor);
-
-	if (!SetPixelFormat(DeviceContext, PixelFormatIndex, &ActualPixelFormatDescriptor)) {
-		Assert(!"Failed to set the pixel format");
-		return false;
-	}
-
-	HGLRC RenderContext = wglCreateContext(DeviceContext);
-	if (!RenderContext) {
-		Assert(!"Failed to create the render context");
-		return false;
-	}
-
-	Context->DeviceContext = DeviceContext;
-	Context->RenderContext = RenderContext;
-
-	return true;
 }
 
 function win32_window* Win32_Create_Window(s32 Width, s32 Height, const wchar_t* WindowName, int WindowFlags, const wchar_t* ClassName) {
@@ -135,8 +101,8 @@ function win32_window* Win32_Create_Window(s32 Width, s32 Height, const wchar_t*
 	Win32->WindowCount++;
 
 	ShowWindow(Window->Handle, WindowFlags);
-
-	if (!Win32_Init_OpenGL(&Window->OpenGLContext, Window->Handle)) {
+	Window->Swapchain = GDI_Create_Swapchain(Window->Handle);
+	if (!Window->Swapchain) {
 		DestroyWindow(Window->Handle);
 		return NULL;
 	}
@@ -166,6 +132,29 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 
 	Win32.Arena = Arena_Create();
 
+	HMODULE GDILibrary = LoadLibraryA("gdi.dll");
+	if (!GDILibrary) {
+		Assert(!"Could not find the gdi.dll library");
+		return 1;
+	}
+
+	gdi_create_func* GDI_Create = (gdi_create_func*)GetProcAddress(GDILibrary, "GDI_Create");
+	gdi* GDI = GDI_Create(Platform_Get());
+	if (!GDI) {
+		Assert(!"Could not initialize gdi");
+		return 1;
+	}
+	G_Platform->GDI = GDI;
+
+	HMODULE AppLibrary = LoadLibraryA("app.dll");
+	if (!AppLibrary) {
+		Assert(!"Could not find the app.dll library");
+		return 1;
+	}
+
+	app_update_views_and_render_func* App_Update_Views_And_Render = 
+		(app_update_views_and_render_func*)GetProcAddress(AppLibrary, "App_Update_Views_And_Render");
+
 	WNDCLASSEXW WindowClass = {
 		.cbSize = sizeof(WNDCLASSEXW),
 		.style = CS_VREDRAW|CS_HREDRAW|CS_OWNDC,
@@ -185,6 +174,8 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 	s32 Height = MonitorInfo.rcWork.bottom - MonitorInfo.rcWork.top;
 
 	Win32_Create_Window(Width, Height, L"AK_Studio", SW_MAXIMIZE, WindowClass.lpszClassName);
+
+	app App = { 0 };
 	for (;;) {
 
 		if (!Win32.WindowCount) {
@@ -207,24 +198,11 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CmdLine, in
 
 		for (win32_window* Window = Win32.FirstWindow; Window; Window = Window->Next) {
 			//Some update here
-			
 			v2i Resolution = Win32_Get_Window_Dim(Window->Handle);
 
-			win32_opengl_context* OpenGLContext = &Window->OpenGLContext;
-			wglMakeCurrent(OpenGLContext->DeviceContext, OpenGLContext->RenderContext);
-
-			glViewport(0, 0, Resolution.x, Resolution.y);
-			glClearColor(0.0f, 0.0f, 1.0f, 0.0f);
-			glClear(GL_COLOR_BUFFER_BIT);
-
-			glBegin(GL_TRIANGLES);
-			glColor4f(1.0f, 1.0f, 0.0f, 1.0f);
-			glVertex2f(-0.5f, -0.5f);
-			glVertex2f(0.5f, -0.5f);
-			glVertex2f(0.0f, 0.5f);
-			glEnd();
-
-			SwapBuffers(OpenGLContext->DeviceContext);
+			gdi_renderer* Renderer = GDI_Begin_Renderer(Window->Swapchain);
+			App_Update_Views_And_Render(&App, Window->RootPanel, Platform_Get(), Renderer);
+			GDI_End_Renderer(GDI);
 		}
 	}
 
